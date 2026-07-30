@@ -8,20 +8,18 @@ pub async fn login(
     pan: &str,
     password: &str,
 ) -> Result<String, String> {
-    // 1. Fetch AuthUser (which includes password_hash)
-    let user = user_repo.find_auth_by_pan(pan).await
+    // 1. Fetch AuthUser directly using find_by_pan
+    let user = user_repo.find_by_pan(pan).await
         .map_err(|_| "internal error".to_string())?
         .ok_or("invalid credentials".to_string())?;
 
-    // 2. Verify password against the hash
+    // 2. Verify password
     if !crypto::hashing::verify(password, &user.password_hash) {
         return Err("invalid credentials".to_string());
     }
 
-    // 3. Generate JWT using the user.uuid() helper method
+    // 3. Issue JWT & save token in Redis
     let token = crypto::signing::generate_jwt(user.uuid());
-
-    // 4. Cache in Redis & update database state
     cache.store_token(user.uuid(), &token, 3600).await
         .map_err(|e| e.to_string())?;
 

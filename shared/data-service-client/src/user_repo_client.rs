@@ -1,5 +1,6 @@
+use async_trait::async_trait;
 use domain::repository::user_repository::UserRepository;
-use domain::models::user::{AuthUser, User};
+use domain::models::user::AuthUser;
 use domain::errors::DomainError;
 
 pub struct RemoteUserRepo {
@@ -7,10 +8,9 @@ pub struct RemoteUserRepo {
     pub base_url: String,
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl UserRepository for RemoteUserRepo {
-    
-    async fn find_auth_by_pan(&self, pan: &str) -> Result<Option<AuthUser>, DomainError> {
+    async fn find_by_pan(&self, pan: &str) -> Result<Option<AuthUser>, DomainError> {
         let url = format!("{}/internal/auth/by-pan/{}", self.base_url, pan);
         let resp = self.http.get(&url).send().await
             .map_err(|e| DomainError::InternalError(e.to_string()))?;
@@ -19,7 +19,6 @@ impl UserRepository for RemoteUserRepo {
             return Ok(None);
         }
 
-        // Deserializes directly into domain::models::user::AuthUser
         let auth_user: AuthUser = resp.json().await
             .map_err(|e| DomainError::InternalError(e.to_string()))?;
 
@@ -30,6 +29,7 @@ impl UserRepository for RemoteUserRepo {
         let url = format!("{}/internal/auth/{}/mark-login", self.base_url, uuid);
         self.http.post(&url).send().await
             .map_err(|e| DomainError::InternalError(e.to_string()))?;
+            
         Ok(())
     }
 }

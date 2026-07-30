@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+domain = { path = "../../shared/domain" }
+async-trait = "0.1"
+sea-orm = { version = "0.12", features = [ "sqlx-postgres", "runtime-tokio-native-tls", "macros" ] }
+actix-web = "4" 
