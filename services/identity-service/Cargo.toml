@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 domain = { path = "../../shared/domain" }
+database = { path = "../../shared/database" }
 serde = { workspace = true, features = ["derive"] }
