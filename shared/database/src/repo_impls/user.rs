@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use sea_orm::*;
-use domain::repository::user_repository::UserRepository;
+use domain::repository::user::UserRepository;
 use domain::models::user::{User, AuthUser};
 use domain::errors::DomainError;
 use crate::entities::user;

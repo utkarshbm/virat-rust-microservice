@@ -1,6 +1,6 @@
 use database::sea_orm::Database;
-use database::repo_impls::user_repo_impl::UserRepoImpl;
-use domain::repository::user_repository::UserRepository;
+use database::repo_impls::user::UserRepoImpl;
+use domain::repository::user::UserRepository;
 
 mod dto;
 

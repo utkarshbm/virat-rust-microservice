@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use domain::repository::user_repository::UserRepository;
+use domain::repository::user::UserRepository;
 use cache::redis_client::RedisCache;
 
 pub async fn login(

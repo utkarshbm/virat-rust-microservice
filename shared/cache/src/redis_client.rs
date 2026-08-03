@@ -11,7 +11,7 @@ impl RedisCache {
 
     pub async fn store_token(&self, uuid: &str, token: &str, ttl_secs: usize) -> redis::RedisResult<()> {
         let mut conn = self.client.get_async_connection().await?;
-        conn.set_ex(format!("session:{uuid}"), token, ttl_secs).await
+        conn.set_ex(format!("session:{uuid}"), token, ttl_secs as u64).await
     }
 
     pub async fn get_token(&self, uuid: &str) -> redis::RedisResult<Option<String>> {
