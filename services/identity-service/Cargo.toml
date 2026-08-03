@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+cache = { path = "../../shared/cache" }
+config = { path = "../../shared/config" }
+crypto = { path = "../../shared/crypto" }
 domain = { path = "../../shared/domain" }
 database = { path = "../../shared/database" }
 serde = { workspace = true, features = ["derive"] }
