@@ -4,6 +4,7 @@ use domain::repository::user::UserRepository;
 
 mod application;
 mod config;
+mod constants;
 mod dto;
 mod handlers;
 mod middleware;
