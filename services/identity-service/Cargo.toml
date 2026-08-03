@@ -7,3 +7,4 @@ edition = "2024"
 domain = { path = "../../shared/domain" }
 database = { path = "../../shared/database" }
 serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true }
