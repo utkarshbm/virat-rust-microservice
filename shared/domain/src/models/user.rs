@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
@@ -18,6 +18,10 @@ pub struct AuthUser {
 }
 
 impl AuthUser {
-    pub fn uuid(&self) -> &str { &self.base.uuid }
-    pub fn pan(&self) -> &str { &self.base.pan }
+    pub fn uuid(&self) -> &str {
+        &self.base.uuid
+    }
+    pub fn pan(&self) -> &str {
+        &self.base.pan
+    }
 }

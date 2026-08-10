@@ -1,9 +1,9 @@
-use async_trait::async_trait;
-use sea_orm::*;
-use domain::repository::user::UserRepository;
-use domain::models::user::{User, AuthUser};
-use domain::errors::DomainError;
 use crate::entities::user;
+use async_trait::async_trait;
+use domain::errors::DomainError;
+use domain::models::user::{AuthUser, User};
+use domain::repository::user::UserRepository;
+use sea_orm::*;
 
 pub struct UserRepoImpl {
     pub db: DatabaseConnection,
@@ -40,9 +40,11 @@ impl UserRepository for UserRepoImpl {
             .into();
 
         active.login_flag = Set(1);
-        active.update(&self.db).await
+        active
+            .update(&self.db)
+            .await
             .map_err(|e| DomainError::InternalError(e.to_string()))?;
-            
+
         Ok(())
     }
 }

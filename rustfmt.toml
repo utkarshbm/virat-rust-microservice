@@ -1,0 +1,7 @@
+# rustfmt.toml
+# Global formatting rules for the virat-rust-microservice workspace
+
+edition = "2021"
+max_width = 100
+use_small_heuristics = "Default"
+newline_style = "Auto"

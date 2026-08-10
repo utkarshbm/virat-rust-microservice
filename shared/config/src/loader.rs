@@ -21,10 +21,7 @@ pub fn load_env_file(service_dir: &str) {
         .join(format!(".env.{}", env.as_str()));
 
     if env_specific.exists() {
-        println!(
-            "[config] Loading env file: {}",
-            env_specific.display()
-        );
+        println!("[config] Loading env file: {}", env_specific.display());
         dotenvy::from_path(&env_specific).ok();
     }
 
@@ -36,10 +33,7 @@ pub fn load_env_file(service_dir: &str) {
         .join(".env");
 
     if env_base.exists() {
-        println!(
-            "[config] Loading base env file: {}",
-            env_base.display()
-        );
+        println!("[config] Loading base env file: {}", env_base.display());
         dotenvy::from_path(&env_base).ok();
     }
 
@@ -69,12 +63,11 @@ fn find_workspace_root() -> PathBuf {
     let mut dir = std::env::current_dir().expect("Failed to get current directory");
     loop {
         let cargo_toml = dir.join("Cargo.toml");
-        if cargo_toml.exists() {
-            if let Ok(contents) = std::fs::read_to_string(&cargo_toml) {
-                if contents.contains("[workspace]") {
-                    return dir;
-                }
-            }
+        if cargo_toml.exists()
+            && let Ok(contents) = std::fs::read_to_string(&cargo_toml)
+            && contents.contains("[workspace]")
+        {
+            return dir;
         }
         if !dir.pop() {
             // Fallback: use current directory if workspace root not found

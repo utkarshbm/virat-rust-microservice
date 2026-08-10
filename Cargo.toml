@@ -24,3 +24,10 @@ serde_json = "1"
 reqwest = { version = "0.12", features = ["json"] }
 redis = { version = "0.27", features = ["tokio-comp"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+# Add custom clippy lints here for the entire workspace
+enum_glob_use = "deny"
