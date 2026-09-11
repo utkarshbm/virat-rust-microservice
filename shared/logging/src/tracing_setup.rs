@@ -25,8 +25,8 @@ pub struct LogGuards {
 /// - **Environment Filtering:** Configurable via the `RUST_LOG` environment variable, defaulting to
 ///   `info,{service_name}=debug,actix_web=info`.
 pub fn init_tracing(service_name: &str) -> LogGuards {
-    // Load environment variables from .env / service-specific envs before initializing
-    load_env(service_name);
+    // Load environment variables via shared config loader
+    config::loader::load_env_file(service_name);
 
     let default_filter = format!("info,{service_name}=debug,actix_web=info");
     let env_filter =
@@ -114,6 +114,7 @@ pub fn init_tracing(service_name: &str) -> LogGuards {
         if tokio::runtime::Handle::try_current().is_ok() {
             spawn_retention_task(logs_base.to_path_buf(), 30);
         }
+        tracing::info!("File logs are enabled");
     } else {
         // Only console output
         let _ = tracing_subscriber::registry()
@@ -170,45 +171,6 @@ pub fn spawn_retention_task(logs_dir: PathBuf, retention_days: i64) {
             prune_old_log_files(&logs_dir.join("debug"), retention_days);
         }
     });
-}
-
-/// Loads environment variables from the `.env` file.
-///
-/// Order of precedence:
-/// 1. `services/{service_name}/envs/.env.{RUN_ENV}` (e.g. `.env.development`)
-/// 2. `services/{service_name}/envs/.env`
-/// 3. `.env` in current directory or parent directories (via standard `dotenvy::dotenv()`)
-///
-/// Does not override variables that are already set in the process environment.
-fn load_env(service_name: &str) {
-    // 1. Standard .env in current directory or parent directories
-    dotenvy::dotenv().ok();
-
-    // 2. Service-specific env files in the workspace
-    if let Ok(mut dir) = std::env::current_dir() {
-        while !dir.join("Cargo.toml").exists()
-            || !std::fs::read_to_string(dir.join("Cargo.toml"))
-                .map(|c| c.contains("[workspace]"))
-                .unwrap_or(false)
-        {
-            if !dir.pop() {
-                break;
-            }
-        }
-
-        let run_env = std::env::var("RUN_ENV").unwrap_or_else(|_| "development".to_string());
-        let service_envs_dir = dir.join("services").join(service_name).join("envs");
-
-        let env_specific = service_envs_dir.join(format!(".env.{}", run_env.to_lowercase()));
-        if env_specific.exists() {
-            dotenvy::from_path(&env_specific).ok();
-        }
-
-        let env_base = service_envs_dir.join(".env");
-        if env_base.exists() {
-            dotenvy::from_path(&env_base).ok();
-        }
-    }
 }
 
 #[cfg(test)]
