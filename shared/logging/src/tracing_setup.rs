@@ -1,12 +1,9 @@
-use std::path::Path;
+use chrono::{Duration, NaiveDate, Utc};
+use std::path::{Path, PathBuf};
 use tracing::Level;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
-    filter::LevelFilter,
-    fmt,
-    layer::SubscriberExt,
-    util::SubscriberInitExt,
-    EnvFilter, Layer,
+    EnvFilter, Layer, filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
 /// RAII guards that keep the non-blocking background writer threads alive.
@@ -29,8 +26,8 @@ pub struct LogGuards {
 ///   `info,{service_name}=debug,actix_web=info`.
 pub fn init_tracing(service_name: &str) -> LogGuards {
     let default_filter = format!("info,{service_name}=debug,actix_web=info");
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(default_filter));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
 
     let mut guards = Vec::new();
 
@@ -104,6 +101,16 @@ pub fn init_tracing(service_name: &str) -> LogGuards {
             .with(info_file_layer)
             .with(debug_file_layer)
             .try_init();
+
+        // 30-day retention: prune old logs on startup and spawn 24-hour task
+        prune_old_log_files(&logs_base.join("error"), 30);
+        prune_old_log_files(&logs_base.join("warn"), 30);
+        prune_old_log_files(&logs_base.join("info"), 30);
+        prune_old_log_files(&logs_base.join("debug"), 30);
+
+        if tokio::runtime::Handle::try_current().is_ok() {
+            spawn_retention_task(logs_base.to_path_buf(), 30);
+        }
     } else {
         // Only console output
         let _ = tracing_subscriber::registry()
@@ -117,6 +124,51 @@ pub fn init_tracing(service_name: &str) -> LogGuards {
     }
 }
 
+pub fn prune_old_log_files(dir: &Path, retention_day: i64) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    let cutoff_date = Utc::now().date_naive() - Duration::days(retention_day);
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        if !path.is_file() {
+            continue;
+        }
+
+        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+            if let Some(date_str) = file_name.split('.').last() {
+                if let Ok(file_date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+                    if file_date < cutoff_date {
+                        tracing::info!(
+                            file = %path.display(),
+                            date = %file_date.to_string(),
+                            "pruning expired log file (>30 days old)"
+                        );
+                        let _ = std::fs::remove_file(&path);
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn spawn_retention_task(logs_dir: PathBuf, retention_days: i64) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
+        loop {
+            interval.tick().await;
+
+            prune_old_log_files(&logs_dir.join("error"), retention_days);
+            prune_old_log_files(&logs_dir.join("warn"), retention_days);
+            prune_old_log_files(&logs_dir.join("info"), retention_days);
+            prune_old_log_files(&logs_dir.join("debug"), retention_days);
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +178,33 @@ mod tests {
         let _guards = init_tracing("test-service");
         tracing::info!(service = "test-service", "Telemetry test event logged");
     }
-}
 
+    #[test]
+    fn test_prune_old_log_files() {
+        let test_dir = std::env::temp_dir().join("virat_test_log_pruning");
+        let _ = std::fs::create_dir_all(&test_dir);
+
+        // 1. Create a dummy expired file from 40 days ago
+        let old_file = test_dir.join("info.log.2026-07-01");
+        std::fs::write(&old_file, "old log entry").unwrap();
+
+        // 2. Create a dummy recent file
+        let today_str = Utc::now().date_naive().format("%Y-%m-%d").to_string();
+        let new_file = test_dir.join(format!("info.log.{}", today_str));
+        std::fs::write(&new_file, "new log entry").unwrap();
+
+        // Verify both exist initially
+        assert!(old_file.exists());
+        assert!(new_file.exists());
+
+        // 3. Prune files older than 30 days
+        prune_old_log_files(&test_dir, 30);
+
+        // 4. Old file must be deleted, new file must remain!
+        assert!(!old_file.exists(), "Old log file should have been pruned!");
+        assert!(new_file.exists(), "Recent log file must NOT be pruned!");
+
+        // Cleanup test directory
+        let _ = std::fs::remove_dir_all(&test_dir);
+    }
+}
