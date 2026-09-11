@@ -7,6 +7,8 @@ Cargo.lock
 !**/.env.example
 
 *.log
+/logs
+**/logs
 
 .DS_Store
 Thumbs.db

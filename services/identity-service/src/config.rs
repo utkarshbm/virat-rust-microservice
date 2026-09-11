@@ -1,6 +1,6 @@
 use config::env_vars::Environment;
 use config::loader;
-
+use logger::info;
 pub struct IdentityConfig {
     pub env: Environment,
     pub database_url: String,
@@ -16,7 +16,7 @@ impl IdentityConfig {
     pub fn load() -> Self {
         let env = Environment::detect();
         loader::load_env_file("identity-service");
-
+        info!(env = env.to_string(), "Environment loaded");
         Self {
             env,
             database_url: loader::require_var("DATABASE_URL"),

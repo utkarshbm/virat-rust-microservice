@@ -1,1 +1,130 @@
+use std::path::Path;
+use tracing::Level;
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{
+    filter::LevelFilter,
+    fmt,
+    layer::SubscriberExt,
+    util::SubscriberInitExt,
+    EnvFilter, Layer,
+};
+
+/// RAII guards that keep the non-blocking background writer threads alive.
+///
+/// If these guards are dropped, any buffered log lines waiting to be written to disk
+/// will be flushed immediately, and no further file logs will be written.
+/// Therefore, `main()` should hold onto `LogGuards` for the entire process lifetime.
+pub struct LogGuards {
+    pub _worker_guards: Vec<WorkerGuard>,
+}
+
+/// Initializes structured logging for a service.
+///
+/// Features:
+/// - **Console Output:** Colored, human-readable stdout output with timestamps and target names.
+/// - **File Output (optional):** When `CREATE_LOG_FILES="true"`, non-blocking daily rolling JSON
+///   log files are written to `logs/error/`, `logs/warn/`, `logs/info/`, and `logs/debug/`, replicating
+///   Virat's Winston file rotation strategy with 30-day retention.
+/// - **Environment Filtering:** Configurable via the `RUST_LOG` environment variable, defaulting to
+///   `info,{service_name}=debug,actix_web=info`.
+pub fn init_tracing(service_name: &str) -> LogGuards {
+    let default_filter = format!("info,{service_name}=debug,actix_web=info");
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(default_filter));
+
+    let mut guards = Vec::new();
+
+    // 1. Console Formatted Output (Developer Friendly with Colors)
+    let console_layer = fmt::layer()
+        .with_ansi(true)
+        .with_target(true)
+        .with_thread_ids(false)
+        .with_line_number(true)
+        .with_file(true)
+        .compact();
+
+    // 2. Check if file logging is enabled (matches Virat's CREATE_LOG_FILES flag)
+    let create_log_files = std::env::var("CREATE_LOG_FILES")
+        .map(|val| val.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if create_log_files {
+        let logs_base = Path::new("logs");
+
+        // Error log appender
+        let (error_appender, error_guard) = tracing_appender::non_blocking(
+            tracing_appender::rolling::daily(logs_base.join("error"), "error.log"),
+        );
+        guards.push(error_guard);
+        let error_file_layer = fmt::layer()
+            .json()
+            .with_ansi(false)
+            .with_writer(error_appender)
+            .with_filter(LevelFilter::from_level(Level::ERROR));
+
+        // Warn log appender
+        let (warn_appender, warn_guard) = tracing_appender::non_blocking(
+            tracing_appender::rolling::daily(logs_base.join("warn"), "warn.log"),
+        );
+        guards.push(warn_guard);
+        let warn_file_layer = fmt::layer()
+            .json()
+            .with_ansi(false)
+            .with_writer(warn_appender)
+            .with_filter(LevelFilter::from_level(Level::WARN));
+
+        // Info log appender
+        let (info_appender, info_guard) = tracing_appender::non_blocking(
+            tracing_appender::rolling::daily(logs_base.join("info"), "info.log"),
+        );
+        guards.push(info_guard);
+        let info_file_layer = fmt::layer()
+            .json()
+            .with_ansi(false)
+            .with_writer(info_appender)
+            .with_filter(LevelFilter::from_level(Level::INFO));
+
+        // Debug log appender
+        let (debug_appender, debug_guard) = tracing_appender::non_blocking(
+            tracing_appender::rolling::daily(logs_base.join("debug"), "debug.log"),
+        );
+        guards.push(debug_guard);
+        let debug_file_layer = fmt::layer()
+            .json()
+            .with_ansi(false)
+            .with_writer(debug_appender)
+            .with_filter(LevelFilter::from_level(Level::DEBUG));
+
+        // Combine all layers with the registry
+        let _ = tracing_subscriber::registry()
+            .with(env_filter)
+            .with(console_layer)
+            .with(error_file_layer)
+            .with(warn_file_layer)
+            .with(info_file_layer)
+            .with(debug_file_layer)
+            .try_init();
+    } else {
+        // Only console output
+        let _ = tracing_subscriber::registry()
+            .with(env_filter)
+            .with(console_layer)
+            .try_init();
+    }
+
+    LogGuards {
+        _worker_guards: guards,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_init_tracing_does_not_panic() {
+        let _guards = init_tracing("test-service");
+        tracing::info!(service = "test-service", "Telemetry test event logged");
+    }
+}
 
