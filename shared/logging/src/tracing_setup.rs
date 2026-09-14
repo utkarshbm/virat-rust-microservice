@@ -1,10 +1,129 @@
 use chrono::{Duration, NaiveDate, Utc};
 use std::path::{Path, PathBuf};
 use tracing::Level;
+use tracing::{
+    Event, Subscriber,
+    field::{Field, Visit},
+};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
-    EnvFilter, Layer, filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
+    EnvFilter, Layer,
+    filter::LevelFilter,
+    fmt,
+    fmt::{FmtContext, FormatEvent, FormatFields, format::Writer},
+    layer::SubscriberExt,
+    registry::LookupSpan,
+    util::SubscriberInitExt,
 };
+
+#[derive(Default)]
+struct FieldVisitor {
+    message: String,
+    context: Option<String>,
+    fields: Vec<(String, String)>,
+}
+
+impl Visit for FieldVisitor {
+    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.message = format!("{value:?}").trim_matches('"').to_string();
+        } else if field.name() == "context" {
+            self.context = Some(format!("{value:?}").trim_matches('"').to_string());
+        } else {
+            self.fields.push((
+                field.name().to_string(),
+                format!("{value:?}").trim_matches('"').to_string(),
+            ));
+        }
+    }
+}
+
+pub struct RustMicroServiceFormatter {
+    pub app_name: String,
+}
+
+fn format_rust_message(target: &str, raw_message: &str) -> String {
+    if target == "LoggerInterceptor" {
+        // e.g. "200 | [GET] /api/v1/ping - 2ms"
+        let parts: Vec<&str> = raw_message.splitn(4, ' ').collect();
+        if parts.len() >= 4 && parts[1] == "|" {
+            let status = parts[0];
+            let method = parts[2];
+            let rest = parts[3];
+
+            let colored_status = if status.starts_with('2') {
+                format!("\x1b[32m{status}\x1b[0m") // green
+            } else if status.starts_with('3') || status.starts_with('4') {
+                format!("\x1b[33m{status}\x1b[0m") // yellow
+            } else {
+                format!("\x1b[1;31m{status}\x1b[0m") // bold red
+            };
+
+            let colored_method = format!("\x1b[32m{method}\x1b[0m");
+
+            if let Some((path, duration)) = rest.rsplit_once(" - ") {
+                return format!(
+                    "{colored_status} | {colored_method} \x1b[1m{path}\x1b[0m \x1b[33m+{duration}\x1b[0m"
+                );
+            } else {
+                return format!("{colored_status} | {colored_method} {rest}");
+            }
+        }
+    }
+    raw_message.to_string()
+}
+
+impl<S, N> FormatEvent<S, N> for RustMicroServiceFormatter
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    fn format_event(
+        &self,
+        _ctx: &FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &Event<'_>,
+    ) -> std::fmt::Result {
+        let mut visitor = FieldVisitor::default();
+        event.record(&mut visitor);
+
+        let now = chrono::Local::now().format("%-m/%-d/%Y, %-I:%M:%S %p");
+        let pid = std::process::id();
+
+        let (level_color, level_str) = match *event.metadata().level() {
+            Level::ERROR => ("\x1b[1;31m", "  ERROR"),
+            Level::WARN => ("\x1b[33m", "   WARN"),
+            Level::INFO => ("\x1b[32m", "    LOG"),
+            Level::DEBUG => ("\x1b[35m", "  DEBUG"),
+            Level::TRACE => ("\x1b[36m", "  TRACE"),
+        };
+
+        let target = visitor
+            .context
+            .as_deref()
+            .unwrap_or_else(|| event.metadata().target());
+        let formatted_msg = format_rust_message(target, &visitor.message);
+
+        write!(
+            writer,
+            "\x1b[32m[{}]\x1b[0m {} {} {level_color}{level_str}\x1b[0m \x1b[33m[{}]\x1b[0m {}",
+            self.app_name, pid, now, target, formatted_msg
+        )?;
+
+        if !visitor.fields.is_empty() {
+            write!(writer, " \x1b[2m(")?;
+            for (i, (k, v)) in visitor.fields.iter().enumerate() {
+                if i > 0 {
+                    write!(writer, ", ")?;
+                }
+                write!(writer, "\x1b[36m{k}\x1b[0m: \x1b[37m{v}\x1b[0m")?;
+            }
+            write!(writer, "\x1b[2m)\x1b[0m")?;
+        }
+
+        writeln!(writer)
+    }
+}
 
 /// RAII guards that keep the non-blocking background writer threads alive.
 ///
@@ -34,14 +153,10 @@ pub fn init_tracing(service_name: &str) -> LogGuards {
 
     let mut guards = Vec::new();
 
-    // 1. Console Formatted Output (Developer Friendly with Colors)
-    let console_layer = fmt::layer()
-        .with_ansi(true)
-        .with_target(true)
-        .with_thread_ids(false)
-        .with_line_number(true)
-        .with_file(true)
-        .compact();
+    // 1. Colorful Console Formatted Output
+    let console_layer = fmt::layer().event_format(RustMicroServiceFormatter {
+        app_name: "Virat".to_string(),
+    });
 
     // 2. Check if file logging is enabled (matches Virat's CREATE_LOG_FILES flag)
     let create_log_files = std::env::var("CREATE_LOG_FILES")
@@ -181,6 +296,8 @@ mod tests {
     fn test_init_tracing_does_not_panic() {
         let _guards = init_tracing("test-service");
         tracing::info!(service = "test-service", "Telemetry test event logged");
+        let logger = crate::logger::Logger::new("AuthService");
+        logger.log("User successfully logged in");
     }
 
     #[test]

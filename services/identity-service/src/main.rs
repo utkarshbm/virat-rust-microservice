@@ -5,12 +5,16 @@ mod dto;
 mod handlers;
 mod middleware;
 mod state;
+use logging::info;
 
 use crate::config::IdentityConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let _guards = logging::init_tracing("identity-service");
     let config = IdentityConfig::load();
+    info!(env = config.env.to_string(), "Environment loaded");
+
     println!(
         "Starting Identity Service on {}:{} [{}]",
         config.host, config.port, config.env

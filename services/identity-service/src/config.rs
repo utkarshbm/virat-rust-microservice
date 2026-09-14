@@ -1,6 +1,6 @@
 use config::env_vars::Environment;
 use config::loader;
-use logger::info;
+use logging::info;
 pub struct IdentityConfig {
     pub env: Environment,
     pub database_url: String,

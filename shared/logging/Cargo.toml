@@ -10,3 +10,6 @@ tracing-appender = { workspace = true }
 chrono = { workspace = true }
 tokio = { workspace = true }
 config = { path = "../config" }
+uuid = { workspace = true }
+actix-web = { workspace = true }
+futures-util = { workspace = true }
