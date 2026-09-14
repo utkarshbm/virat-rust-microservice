@@ -4,10 +4,10 @@ mod routes;
 mod state;
 
 use crate::config::GatewayConfig;
-use actix_web::{App, HttpMessage, HttpRequest, HttpResponse, HttpServer, Responder, get};
+use actix_web::{App, HttpMessage, HttpRequest, HttpResponse, HttpServer, Responder, get, post, web};
 use logging::{AuditLoggingMiddleware, RequestMetadata, info, logger};
 
-// A sample health route
+// A sample health route (unencrypted route)
 #[get("/health")]
 async fn health_check() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
@@ -22,7 +22,7 @@ async fn ping(req: HttpRequest) -> impl Responder {
     // Pull the metadata that AuditLoggingMiddleware stored in req.extensions()!
     let metadata = req.extensions().get::<RequestMetadata>().cloned();
 
-    let logger=logger::Logger::new("ping-service");
+    let logger = logger::Logger::new("ping-service");
     logger.log("ping log");
     logger.warn("ping warn");
     logger.error("ping error");
@@ -32,6 +32,21 @@ async fn ping(req: HttpRequest) -> impl Responder {
         "message": "pong",
         "request_id": metadata.as_ref().map(|m| m.request_id.to_string()),
         "client_ip": metadata.as_ref().map(|m| m.client_ip.clone()),
+    }))
+}
+
+// An encrypted endpoint demonstrating automatic inbound decryption and outbound response encryption!
+#[post("/api/v1/user/test-encrypted")]
+async fn test_encrypted_endpoint(
+    req: HttpRequest,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let metadata = req.extensions().get::<RequestMetadata>().cloned();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "received_decrypted_payload": body.into_inner(),
+        "request_id": metadata.as_ref().map(|m| m.request_id.to_string()),
     }))
 }
 
@@ -48,12 +63,15 @@ async fn main() -> std::io::Result<()> {
     info!(target: "RoutesResolver", "HealthController {{/health}}");
     info!(target: "RouterExplorer", "Mapped {{/health, GET}} route");
     info!(target: "RouterExplorer", "Mapped {{/api/v1/ping, GET}} route");
+    info!(target: "RouterExplorer", "Mapped {{/api/v1/user/test-encrypted, POST}} route");
+
     // 3. Bind Actix Web HTTP server
     let server = HttpServer::new(|| {
         App::new()
             .wrap(AuditLoggingMiddleware)
             .service(health_check)
             .service(ping)
+            .service(test_encrypted_endpoint)
     })
     .bind((config.host.as_str(), config.port))?;
 

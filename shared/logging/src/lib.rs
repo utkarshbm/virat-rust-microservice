@@ -8,4 +8,4 @@ pub use tracing_setup::{init_tracing, LogGuards};
 pub use tracing::{debug, error, info, trace, warn, span, Level};
 
 //re-export middlewares traits (transform + service)
-pub use request_logger::{AuditLoggingMiddleware, AuditLoggingMiddlewareService, RequestMetadata};
+pub use request_logger::{AuditLoggingMiddleware, AuditLoggingMiddlewareService, DecryptedBody, RequestMetadata};

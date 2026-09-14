@@ -32,6 +32,19 @@ thiserror = "2"
 anyhow = "1"
 dotenvy = "0.15"
 futures-util = "0.3"
+regex = "1.11"
+hmac = "0.12"
+sha2 = "0.10"
+md-5 = "0.10"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+cipher = { version = "0.4", features = ["block-padding"] }
+base64 = "0.22"
+hex = "0.4"
+rand = "0.8"
+rsa = { version = "0.9", features = ["pem"] }
+sha1 = "0.10"
+
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

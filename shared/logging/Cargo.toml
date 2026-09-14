@@ -12,4 +12,8 @@ tokio = { workspace = true }
 config = { path = "../config" }
 uuid = { workspace = true }
 actix-web = { workspace = true }
+actix-http = "3"
 futures-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+crypto = { path = "../crypto" }
