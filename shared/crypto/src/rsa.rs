@@ -40,8 +40,8 @@ pub fn decrypt_hybrid_rsa(
     private_key_pem: &str,
 ) -> Result<String, CryptoError> {
     // 1. Parse JSON envelope
-    let payload: HybridPayload = serde_json::from_str(payload_json.trim())
-        .map_err(CryptoError::JsonError)?;
+    let payload: HybridPayload =
+        serde_json::from_str(payload_json.trim()).map_err(CryptoError::JsonError)?;
 
     // 2. Parse RSA private key (support PKCS#1 format standard in Virat)
     let private_key = RsaPrivateKey::from_pkcs1_pem(private_key_pem)
@@ -49,11 +49,10 @@ pub fn decrypt_hybrid_rsa(
         .map_err(|e| CryptoError::DecryptionFailed(format!("Invalid RSA private key: {e}")))?;
 
     // 3. Find and decode the encrypted AES key from payload.keys
-    let encrypted_key_b64 = payload
-        .keys
-        .values()
-        .next()
-        .ok_or_else(|| CryptoError::DecryptionFailed("Missing encrypted key in payload".into()))?;
+    let encrypted_key_b64 =
+        payload.keys.values().next().ok_or_else(|| {
+            CryptoError::DecryptionFailed("Missing encrypted key in payload".into())
+        })?;
 
     let encrypted_key_bytes = BASE64_STANDARD
         .decode(encrypted_key_b64.trim())
@@ -102,10 +101,7 @@ pub fn decrypt_hybrid_rsa(
 /// Encrypts plaintext using `hybrid-crypto-js` compatible format with a client's RSA public key.
 ///
 /// Used for outbound responses in VAPT mode when `!is_default_encryption_url`.
-pub fn encrypt_hybrid_rsa(
-    plaintext: &str,
-    public_key_pem: &str,
-) -> Result<String, CryptoError> {
+pub fn encrypt_hybrid_rsa(plaintext: &str, public_key_pem: &str) -> Result<String, CryptoError> {
     // 1. Parse RSA public key (support SubjectPublicKeyInfo / SPKI and PKCS#1)
     let public_key = RsaPublicKey::from_public_key_pem(public_key_pem)
         .or_else(|_| RsaPublicKey::from_pkcs1_pem(public_key_pem))
@@ -131,7 +127,10 @@ pub fn encrypt_hybrid_rsa(
 
     // 5. Construct fingerprint (or default identifier)
     let mut keys = HashMap::new();
-    keys.insert("client_key".to_string(), BASE64_STANDARD.encode(encrypted_key));
+    keys.insert(
+        "client_key".to_string(),
+        BASE64_STANDARD.encode(encrypted_key),
+    );
 
     let payload = HybridPayload {
         v: "hybrid-crypto-js_0.2.4".to_string(),

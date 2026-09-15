@@ -4,7 +4,9 @@ mod routes;
 mod state;
 
 use crate::config::GatewayConfig;
-use actix_web::{App, HttpMessage, HttpRequest, HttpResponse, HttpServer, Responder, get, post, web};
+use actix_web::{
+    App, HttpMessage, HttpRequest, HttpResponse, HttpServer, Responder, get, post, web,
+};
 use logging::{AuditLoggingMiddleware, RequestMetadata, info, logger};
 
 // A sample health route (unencrypted route)
@@ -65,10 +67,16 @@ async fn main() -> std::io::Result<()> {
     info!(target: "RouterExplorer", "Mapped {{/api/v1/ping, GET}} route");
     info!(target: "RouterExplorer", "Mapped {{/api/v1/user/test-encrypted, POST}} route");
 
+    let audit_logger = AuditLoggingMiddleware::new(
+        config.is_vapt,
+        config.aes_secret.clone(),
+        config.aes_hash_key.clone(),
+    );
+
     // 3. Bind Actix Web HTTP server
-    let server = HttpServer::new(|| {
+    let server = HttpServer::new(move || {
         App::new()
-            .wrap(AuditLoggingMiddleware)
+            .wrap(audit_logger.clone())
             .service(health_check)
             .service(ping)
             .service(test_encrypted_endpoint)

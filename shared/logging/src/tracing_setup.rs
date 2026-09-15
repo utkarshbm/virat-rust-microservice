@@ -257,19 +257,17 @@ pub fn prune_old_log_files(dir: &Path, retention_day: i64) {
             continue;
         }
 
-        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-            if let Some(date_str) = file_name.split('.').last() {
-                if let Ok(file_date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-                    if file_date < cutoff_date {
-                        tracing::info!(
-                            file = %path.display(),
-                            date = %file_date.to_string(),
-                            "pruning expired log file (>30 days old)"
-                        );
-                        let _ = std::fs::remove_file(&path);
-                    }
-                }
-            }
+        if let Some(file_name) = path.file_name().and_then(|n| n.to_str())
+            && let Some(date_str) = file_name.split('.').next_back()
+            && let Ok(file_date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+            && file_date < cutoff_date
+        {
+            tracing::info!(
+                file = %path.display(),
+                date = %file_date.to_string(),
+                "pruning expired log file (>30 days old)"
+            );
+            let _ = std::fs::remove_file(&path);
         }
     }
 }

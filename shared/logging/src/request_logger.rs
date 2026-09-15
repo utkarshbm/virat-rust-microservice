@@ -1,12 +1,13 @@
 use actix_web::{
-    body::{to_bytes, BoxBody, MessageBody},
-    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
+    Error, HttpMessage, HttpResponse,
+    body::{BoxBody, MessageBody, to_bytes},
+    dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready},
     http::header,
-    web, Error, HttpMessage, HttpResponse,
+    web,
 };
-use futures_util::future::LocalBoxFuture;
 use futures_util::StreamExt;
-use std::future::{ready, Ready};
+use futures_util::future::LocalBoxFuture;
+use std::future::{Ready, ready};
 use std::rc::Rc;
 use std::time::Instant;
 use uuid::Uuid;
@@ -29,11 +30,32 @@ pub struct RequestMetadata {
 #[derive(Clone, Debug)]
 pub struct DecryptedBody(pub serde_json::Value);
 
-#[derive(Default, Clone)]
-pub struct AuditLoggingMiddleware;
+#[derive(Clone)]
+pub struct AuditLoggingMiddleware {
+    pub is_vapt: bool,
+    pub secret: String,
+    pub hash_key: String,
+    pub default_aes_key: String,
+}
+
+impl AuditLoggingMiddleware {
+    pub fn new(is_vapt: bool, secret: String, hash_key: String) -> Self {
+        let default_aes_key = crypto::derive_default_aes_key(&secret, &hash_key);
+        Self {
+            is_vapt,
+            secret,
+            hash_key,
+            default_aes_key,
+        }
+    }
+}
 
 pub struct AuditLoggingMiddlewareService<S> {
     service: Rc<S>,
+    is_vapt: bool,
+    secret: String,
+    hash_key: String,
+    default_aes_key: String,
 }
 
 impl<S, B> Transform<S, ServiceRequest> for AuditLoggingMiddleware
@@ -51,6 +73,10 @@ where
     fn new_transform(&self, service: S) -> Self::Future {
         ready(Ok(AuditLoggingMiddlewareService {
             service: Rc::new(service),
+            is_vapt: self.is_vapt,
+            secret: self.secret.clone(),
+            hash_key: self.hash_key.clone(),
+            default_aes_key: self.default_aes_key.clone(),
         }))
     }
 }
@@ -107,16 +133,11 @@ where
         let is_encrypted_request = crypto::ROUTE_POLICY.is_encrypted_request(&path);
         let is_encrypted_response = crypto::ROUTE_POLICY.is_encrypted_response(&path);
 
-        // Security flags & keys
-        let is_vapt = std::env::var("VAPT")
-            .map(|v| v.eq_ignore_ascii_case("yes"))
-            .unwrap_or(false);
-
-        let secret = std::env::var("AES_SECRET")
-            .unwrap_or_else(|_| "5b6714126d3149fbab994747b2633287".to_string());
-        let hash_key = std::env::var("AES_HASH_KEY")
-            .unwrap_or_else(|_| "r4vcos0ejvndsow95n".to_string());
-        let default_aes_key = crypto::derive_default_aes_key(&secret, &hash_key);
+        // Security flags & keys (pre-loaded from middleware)
+        let is_vapt = self.is_vapt;
+        let secret = self.secret.clone();
+        let hash_key = self.hash_key.clone();
+        let default_aes_key = self.default_aes_key.clone();
 
         // Save RequestMetadata in extensions
         let metadata = RequestMetadata {
@@ -151,8 +172,8 @@ where
                 if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(&body_bytes) {
                     if let Some(enc_data) = json_val.get("data").and_then(|d| d.as_str()) {
                         let decrypt_res = if is_vapt {
-                            let priv_pem = std::fs::read_to_string("files/private.pem")
-                                .unwrap_or_default();
+                            let priv_pem =
+                                std::fs::read_to_string("files/private.pem").unwrap_or_default();
                             crypto::decrypt_hybrid_rsa(enc_data, &priv_pem)
                         } else {
                             crypto::decrypt_aes_cryptojs(enc_data, &default_aes_key)
@@ -285,17 +306,16 @@ where
 }
 
 fn extract_client_ip(req: &ServiceRequest) -> String {
-    if let Some(ip) = req.headers().get("true-client-ip") {
-        if let Ok(ip_str) = ip.to_str() {
-            return ip_str.to_string();
-        }
+    if let Some(ip) = req.headers().get("true-client-ip")
+        && let Ok(ip_str) = ip.to_str()
+    {
+        return ip_str.to_string();
     }
-    if let Some(forwarded) = req.headers().get("x-forwarded-for") {
-        if let Ok(forwarded_str) = forwarded.to_str() {
-            if let Some(first_ip) = forwarded_str.split(',').next() {
-                return first_ip.trim().to_string();
-            }
-        }
+    if let Some(forwarded) = req.headers().get("x-forwarded-for")
+        && let Ok(forwarded_str) = forwarded.to_str()
+        && let Some(first_ip) = forwarded_str.split(',').next()
+    {
+        return first_ip.trim().to_string();
     }
     req.connection_info()
         .realip_remote_addr()
@@ -304,21 +324,19 @@ fn extract_client_ip(req: &ServiceRequest) -> String {
 }
 
 fn extract_auth_token(req: &ServiceRequest) -> Option<String> {
-    if let Some(auth_val) = req.headers().get("authorization") {
-        if let Ok(auth_str) = auth_val.to_str() {
-            if let Some(token) = auth_str.strip_prefix("Bearer ") {
-                return Some(token.to_string());
-            }
-            return Some(auth_str.to_string());
+    if let Some(auth_val) = req.headers().get("authorization")
+        && let Ok(auth_str) = auth_val.to_str()
+    {
+        if let Some(token) = auth_str.strip_prefix("Bearer ") {
+            return Some(token.to_string());
         }
+        return Some(auth_str.to_string());
     }
 
     let query_str = req.query_string();
     for param in query_str.split('&') {
-        if let Some((key, val)) = param.split_once('=') {
-            if key == "access_token" {
-                return Some(val.to_string());
-            }
+        if let Some(("access_token", val)) = param.split_once('=') {
+            return Some(val.to_string());
         }
     }
 
@@ -328,7 +346,7 @@ fn extract_auth_token(req: &ServiceRequest) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{get, post, test, App};
+    use actix_web::{App, get, post, test};
 
     #[get("/health")]
     async fn health() -> HttpResponse {
@@ -344,7 +362,8 @@ mod tests {
 
     #[actix_web::test]
     async fn test_unencrypted_health_route() {
-        let app = test::init_service(App::new().wrap(AuditLoggingMiddleware).service(health)).await;
+        let middleware = AuditLoggingMiddleware::new(false, "dummy".into(), "dummy".into());
+        let app = test::init_service(App::new().wrap(middleware).service(health)).await;
 
         let req = test::TestRequest::get().uri("/health").to_request();
         let resp = test::call_service(&app, req).await;
@@ -358,15 +377,19 @@ mod tests {
     async fn test_encrypted_request_and_response_pipeline() {
         let app = test::init_service(
             App::new()
-                .wrap(AuditLoggingMiddleware)
+                .wrap(AuditLoggingMiddleware::new(
+                    false,
+                    "dummy".into(),
+                    "dummy".into(),
+                ))
                 .service(test_encrypted_route),
         )
         .await;
 
         // 1. Plaintext client payload
         let plain_payload = r#"{"name":"ViratUser","balance":50000}"#;
-        let secret = "5b6714126d3149fbab994747b2633287";
-        let hash_key = "r4vcos0ejvndsow95n";
+        let secret = "dummy_secret_for_tests";
+        let hash_key = "dummy_hash_for_tests";
         let default_key = crypto::derive_default_aes_key(secret, hash_key);
 
         // 2. Encrypt plaintext matching client CryptoJS AES-CBC behavior
@@ -386,7 +409,10 @@ mod tests {
 
         // 4. Read response: must be encrypted envelope { "body": "<encrypted_b64>" }
         let resp_json: serde_json::Value = test::read_body_json(resp).await;
-        assert!(resp_json.get("body").is_some(), "Response must contain 'body' envelope");
+        assert!(
+            resp_json.get("body").is_some(),
+            "Response must contain 'body' envelope"
+        );
         let encrypted_resp = resp_json["body"].as_str().unwrap();
 
         // 5. Decrypt response using dynamic AES key (secret + ip + timestamp)

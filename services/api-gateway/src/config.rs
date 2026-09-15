@@ -8,6 +8,9 @@ pub struct GatewayConfig {
     pub rate_limit_rpm: u32,
     pub host: String,
     pub port: u16,
+    pub is_vapt: bool,
+    pub aes_secret: String,
+    pub aes_hash_key: String,
 }
 
 impl GatewayConfig {
@@ -26,6 +29,9 @@ impl GatewayConfig {
             port: loader::optional_var("PORT", "8080")
                 .parse()
                 .expect("PORT must be a number"),
+            is_vapt: loader::optional_var("VAPT", "no").eq_ignore_ascii_case("yes"),
+            aes_secret: loader::require_var("AES_SECRET"),
+            aes_hash_key: loader::require_var("AES_HASH_KEY"),
         }
     }
 }

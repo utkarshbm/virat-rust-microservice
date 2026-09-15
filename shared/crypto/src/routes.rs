@@ -237,7 +237,10 @@ mod tests {
 
     #[test]
     fn test_normalize_url() {
-        assert_eq!(normalize_url("/api/v1/ping?test=1&user=abc"), "/api/v1/ping");
+        assert_eq!(
+            normalize_url("/api/v1/ping?test=1&user=abc"),
+            "/api/v1/ping"
+        );
         assert_eq!(normalize_url("/api/v1/ping"), "/api/v1/ping");
     }
 
@@ -245,7 +248,9 @@ mod tests {
     fn test_request_encryption_rules() {
         // Whitelisted unencrypted routes
         assert!(!ROUTE_POLICY.is_encrypted_request("/api/v1/mergerSchemes"));
-        assert!(!ROUTE_POLICY.is_encrypted_request("/api/v1/payment/webhook-update-payment?foo=bar"));
+        assert!(
+            !ROUTE_POLICY.is_encrypted_request("/api/v1/payment/webhook-update-payment?foo=bar")
+        );
 
         // Standard routes should be encrypted
         assert!(ROUTE_POLICY.is_encrypted_request("/api/v1/user/profile"));
@@ -270,9 +275,11 @@ mod tests {
 
         // Dynamic regex pattern matches
         assert!(ROUTE_POLICY.is_default_encryption_url("/api/v1/master/features/42"));
-        assert!(ROUTE_POLICY.is_default_encryption_url(
-            "/api/v1/cart/count/12345678-1234-1234-1234-123456789abc"
-        ));
+        assert!(
+            ROUTE_POLICY.is_default_encryption_url(
+                "/api/v1/cart/count/12345678-1234-1234-1234-123456789abc"
+            )
+        );
         assert!(ROUTE_POLICY.is_default_encryption_url("/api/v1/cart/mf/recommendate/some-scheme"));
 
         // Non-matching routes

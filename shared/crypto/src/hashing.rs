@@ -5,8 +5,8 @@ type HmacSha256 = Hmac<Sha256>;
 
 /// Computes the HMAC-SHA256 digest of `data` using `key`, returning a lowercase hex string.
 pub fn hmac_sha256_hex(key: &[u8], data: &[u8]) -> String {
-    let mut mac = HmacSha256::new_from_slice(key)
-        .expect("HMAC can accept keys of any arbitrary length");
+    let mut mac =
+        HmacSha256::new_from_slice(key).expect("HMAC can accept keys of any arbitrary length");
     mac.update(data);
     hex::encode(mac.finalize().into_bytes())
 }
