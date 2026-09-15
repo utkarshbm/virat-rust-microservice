@@ -203,6 +203,9 @@ where
                 body_bytes
             };
 
+            // Save decrypted/raw request payload for logging
+            let req_body_str = String::from_utf8_lossy(&decrypted_bytes).to_string();
+
             // Reconstruct the request payload stream so downstream handlers can parse it
             let (_, mut new_payload) = actix_http::h1::Payload::create(true);
             new_payload.unread_data(decrypted_bytes);
@@ -215,7 +218,13 @@ where
             match res {
                 Ok(srv_res) => {
                     let latency_ms = start_time.elapsed().as_millis();
-                    let status = srv_res.status().as_u16();
+
+                    // 5. OUTBOUND RESPONSE BODY TRANSFORMATION
+                    let (http_req, http_res) = srv_res.into_parts();
+                    let res_status = http_res.status();
+                    let status = res_status.as_u16();
+                    let body_bytes = to_bytes(http_res.into_body()).await.unwrap_or_default();
+                    let res_body_str = String::from_utf8_lossy(&body_bytes).to_string();
 
                     // Emit structured console diagnostic log if URL is not excluded
                     if should_log {
@@ -223,19 +232,15 @@ where
                             target: "LoggerInterceptor",
                             request_id = %request_id,
                             client_ip = %client_ip,
+                            // request_body = %req_body_str,
+                            // response_body = %res_body_str,        //warning!!!!!!
                             "{} | [{}] {} - {}ms",
                             status,
                             method,
                             path,
-                            latency_ms
+                            latency_ms,
                         );
                     }
-
-                    // 5. OUTBOUND RESPONSE BODY TRANSFORMATION
-                    let (http_req, http_res) = srv_res.into_parts();
-                    let res_status = http_res.status();
-                    let body_bytes = to_bytes(http_res.into_body()).await.unwrap_or_default();
-                    let body_str = String::from_utf8_lossy(&body_bytes).to_string();
 
                     let transformed_res = if is_encrypted_response && !body_bytes.is_empty() {
                         // Dynamic key: HMAC-SHA256(secret + ip + timestamp, hashKey)
@@ -251,7 +256,7 @@ where
                             &hash_key,
                         );
 
-                        match crypto::encrypt_aes_cryptojs(&body_str, &dynamic_key) {
+                        match crypto::encrypt_aes_cryptojs(&res_body_str, &dynamic_key) {
                             Ok(encrypted_b64) => {
                                 let envelope = serde_json::json!({ "body": encrypted_b64 });
                                 HttpResponse::build(res_status)
@@ -285,13 +290,25 @@ where
                 Err(err) => {
                     let latency_ms = start_time.elapsed().as_millis();
 
+                    let err_res = err.error_response();
+                    let err_status = err_res.status().as_u16();
+                    let err_body_bytes = to_bytes(err_res.into_body()).await.unwrap_or_default();
+                    let mut err_body_str = String::from_utf8_lossy(&err_body_bytes).to_string();
+                    if err_body_str.is_empty() {
+                        err_body_str = err.to_string();
+                    }
+
                     if should_log {
                         tracing::error!(
                             target: "LoggerInterceptor",
                             request_id = %request_id,
                             client_ip = %client_ip,
+                            //make sure 
+                            // request_body = %req_body_str,              
+                            // response_body = %err_body_str,
                             error = %err,
-                            "500 | [{}] {} - {}ms",
+                            "{} | [{}] {} - {}ms",
+                            err_status,
                             method,
                             path,
                             latency_ms
@@ -375,22 +392,22 @@ mod tests {
 
     #[actix_web::test]
     async fn test_encrypted_request_and_response_pipeline() {
-        let app = test::init_service(
-            App::new()
-                .wrap(AuditLoggingMiddleware::new(
-                    false,
-                    "dummy".into(),
-                    "dummy".into(),
-                ))
-                .service(test_encrypted_route),
-        )
-        .await;
-
         // 1. Plaintext client payload
         let plain_payload = r#"{"name":"ViratUser","balance":50000}"#;
         let secret = "dummy_secret_for_tests";
         let hash_key = "dummy_hash_for_tests";
         let default_key = crypto::derive_default_aes_key(secret, hash_key);
+
+        let app = test::init_service(
+            App::new()
+                .wrap(AuditLoggingMiddleware::new(
+                    false,
+                    secret.into(),
+                    hash_key.into(),
+                ))
+                .service(test_encrypted_route),
+        )
+        .await;
 
         // 2. Encrypt plaintext matching client CryptoJS AES-CBC behavior
         let encrypted_b64 = crypto::encrypt_aes_cryptojs(plain_payload, &default_key).unwrap();

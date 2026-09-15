@@ -7,3 +7,4 @@ edition = "2024"
 domain = { path = "../../shared/domain" }
 async-trait = "0.1"
 sea-orm = { workspace = true }
+serde = { workspace = true }

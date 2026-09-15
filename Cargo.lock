@@ -756,6 +756,7 @@ dependencies = [
  "async-trait",
  "domain",
  "sea-orm",
+ "serde",
 ]
 
 [[package]]
